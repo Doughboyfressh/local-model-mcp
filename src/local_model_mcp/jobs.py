@@ -20,10 +20,10 @@ class Jobs:
 
     def status(self, job_id: str, log_lines=20):
         path = self.workspace.path("runs", job_id)
-        status = json.loads((path / "status.json").read_text())
+        status = json.loads((path / "status.json").read_text(encoding="utf-8"))
         process_path = path / "process.json"
         if status["status"] not in TERMINAL and process_path.exists():
-            identity = json.loads(process_path.read_text())
+            identity = json.loads(process_path.read_text(encoding="utf-8"))
             try:
                 process = psutil.Process(identity["pid"])
                 alive = (
@@ -34,7 +34,7 @@ class Jobs:
                 alive = False
             if not alive:
                 # Re-read: the worker may have just committed its terminal status.
-                status = json.loads((path / "status.json").read_text())
+                status = json.loads((path / "status.json").read_text(encoding="utf-8"))
                 if status["status"] not in TERMINAL:
                     status = {**status, "status": "interrupted", "error": "Worker exited"}
         child = self.children.get(job_id)
@@ -108,8 +108,17 @@ class Jobs:
                     "TRANSFORMERS_OFFLINE": "1",
                     "HF_HUB_DISABLE_TELEMETRY": "1",
                     "TOKENIZERS_PARALLELISM": "false",
+                    "PYTHONUTF8": "1",
+                    "PYTHONIOENCODING": "utf-8",
                 }
             )
+            # Keep workers independent of the MCP process's console/process group.
+            process_options = {"start_new_session": True}
+            if sys.platform == "win32":
+                process_options = {
+                    "creationflags": subprocess.CREATE_NO_WINDOW
+                    | subprocess.CREATE_NEW_PROCESS_GROUP,
+                }
             try:
                 with (run / "worker.log").open("wb") as log:
                     child = subprocess.Popen(
@@ -126,6 +135,7 @@ class Jobs:
                         stdout=log,
                         stderr=log,
                         env=env,
+                        **process_options,
                     )
                 self.children[job_id] = child
                 json_write(

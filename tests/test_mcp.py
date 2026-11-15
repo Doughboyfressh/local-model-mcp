@@ -1,4 +1,6 @@
 import asyncio
+import json
+import subprocess
 import sys
 
 from mcp import ClientSession, StdioServerParameters
@@ -6,10 +8,26 @@ from mcp.client.stdio import stdio_client
 
 
 def test_real_stdio_protocol_and_weight_edit(workspace):
+    configuration = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "local_model_mcp.server",
+            "--root",
+            str(workspace.root),
+            "--print-mcp-config",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    launch = json.loads(configuration.stdout)["mcpServers"]["local-model-lab"]
+
     async def scenario():
         parameters = StdioServerParameters(
-            command=sys.executable,
-            args=["-m", "local_model_mcp.server", "--root", str(workspace.root)],
+            command=launch["command"],
+            args=launch["args"],
         )
         async with stdio_client(parameters) as (read, write):
             async with ClientSession(read, write) as client:
@@ -54,6 +72,7 @@ def test_real_stdio_protocol_and_weight_edit(workspace):
                             "model": "tiny",
                             "prompt": "hello world",
                             "max_new_tokens": 2,
+                            "device": "cpu",
                         }
                     },
                 )

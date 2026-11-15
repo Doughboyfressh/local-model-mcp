@@ -1,7 +1,7 @@
 import argparse
 import asyncio
 import json
-import os
+import platform
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -12,6 +12,7 @@ from pydantic import Field
 
 from . import __version__, weights
 from .jobs import Jobs
+from .runtime import default_root, mcp_config
 from .schemas import (
     EditRequest,
     EvaluateRequest,
@@ -53,6 +54,8 @@ def create_server(root: str | Path) -> FastMCP:
             "version": __version__,
             "workspace": str(workspace.root),
             "transport": "stdio",
+            "platform": platform.system(),
+            "supported_platforms": ["Windows", "macOS", "Linux"],
             "formats": ["Hugging Face unquantized safetensors (single or sharded)", "PEFT LoRA"],
             "training": ["lora", "full"],
             "tasks": ["causal language modeling"],
@@ -121,7 +124,11 @@ def create_server(root: str | Path) -> FastMCP:
             "total_elements": sum(item["elements"] for item in checkpoint.catalog.values()),
             "tensors": items[offset : offset + limit],
             "next_offset": offset + limit if offset + limit < len(items) else None,
-            "manifest": json.loads(manifest_path.read_text()) if manifest_path.exists() else None,
+            "manifest": (
+                json.loads(manifest_path.read_text(encoding="utf-8"))
+                if manifest_path.exists()
+                else None
+            ),
         }
 
     @server.tool(annotations=READ)
@@ -248,14 +255,17 @@ def create_server(root: str | Path) -> FastMCP:
 
 def main():
     parser = argparse.ArgumentParser(description="Local fine-tuning and weight-editing MCP server")
+    parser.add_argument("--root", type=Path, default=default_root())
+    parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument(
-        "--root",
-        default=os.getenv(
-            "LOCAL_MODEL_MCP_ROOT",
-            "~/.local/share/local-model-mcp",
-        ),
+        "--print-mcp-config",
+        action="store_true",
+        help="Print JSON configuration using this Python interpreter, then exit",
     )
     args = parser.parse_args()
+    if args.print_mcp_config:
+        print(json.dumps(mcp_config(args.root), indent=2))
+        return
     # This server deliberately exposes only local stdio, with the host managing access.
     create_server(args.root).run(transport="stdio")
 

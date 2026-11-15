@@ -1,8 +1,12 @@
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
-Name = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")]
+from .workspace import name as portable_name
+
+Name = Annotated[
+    str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"), AfterValidator(portable_name)
+]
 Finite = Annotated[float, Field(allow_inf_nan=False)]
 
 

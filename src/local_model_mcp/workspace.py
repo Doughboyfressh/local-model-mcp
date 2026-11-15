@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -11,11 +12,21 @@ from filelock import FileLock
 
 NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}\Z")
 MAX_DATASET_BYTES = 64 * 1024 * 1024
+WINDOWS_RESERVED = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
 
 
 def name(value: str) -> str:
     if not NAME_RE.fullmatch(value):
         raise ValueError("Use a simple name: 1–96 letters, digits, dots, underscores, or hyphens")
+    if value.endswith(".") or value.split(".", 1)[0].upper() in WINDOWS_RESERVED:
+        raise ValueError("Name must also be valid on Windows: no reserved devices or trailing dots")
     return value
 
 
@@ -27,13 +38,25 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def replace_file(source: Path, destination: Path) -> None:
+    """Replace a closed file, tolerating short Windows reader/share-lock collisions."""
+    for attempt in range(10):
+        try:
+            os.replace(source, destination)
+            return
+        except PermissionError as exc:
+            if getattr(exc, "winerror", None) not in {5, 32, 33} or attempt == 9:
+                raise
+            time.sleep(0.01 * (attempt + 1))
+
+
 def json_write(path: Path, value: dict) -> None:
     fd, temporary = tempfile.mkstemp(prefix=".write-", dir=path.parent)
     try:
-        with os.fdopen(fd, "w") as stream:
-            json.dump(value, stream, indent=2, allow_nan=False)
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
+            json.dump(value, stream, indent=2, allow_nan=False, ensure_ascii=False)
             stream.write("\n")
-        os.replace(temporary, path)
+        replace_file(Path(temporary), path)
     finally:
         Path(temporary).unlink(missing_ok=True)
 
@@ -93,7 +116,7 @@ class Workspace:
         if path.stat().st_size > MAX_DATASET_BYTES:
             raise ValueError("Dataset exceeds the 64 MiB limit")
         rows = []
-        with path.open() as stream:
+        with path.open(encoding="utf-8") as stream:
             for line_number, line in enumerate(stream, 1):
                 if line.strip():
                     try:

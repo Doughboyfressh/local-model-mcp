@@ -7,25 +7,74 @@ and directly edit their checkpoint tensors. Runs entirely on your machine over *
 tensor replacement, additive and low-rank updates, evaluation, generation, adapter merging,
 background jobs, and checkpoint provenance. Every mutation creates a new checkpoint version.
 
+## Windows, macOS, and Linux
+
+The same Python package and MCP tools run natively on all three operating systems.
+No WSL, Docker, Bash, or PowerShell activation script is required to run the server.
+
+| Platform | Baseline | Optional acceleration | Default workspace |
+| --- | --- | --- | --- |
+| Windows (x64) | CPU | NVIDIA CUDA with a matching PyTorch build | `%LOCALAPPDATA%\local-model-mcp` |
+| macOS (Apple silicon) | CPU | Apple MPS when available | `~/Library/Application Support/local-model-mcp` |
+| Linux (x64) | CPU | NVIDIA CUDA with a matching PyTorch build | `${XDG_DATA_HOME:-~/.local/share}/local-model-mcp` |
+
+`device: "auto"` selects CUDA, then Apple MPS, then CPU according to availability.
+`device: "cpu"` works without a GPU. Training and weight-edit tools have the same API
+on each OS. Names reject Windows device names and trailing dots on every platform so
+workspaces remain portable. UTF-8 datasets and paths containing spaces or Unicode are supported.
+
+Native macOS wheels for the required modern PyTorch releases target Apple silicon;
+Intel macOS is outside the supported binary-install matrix. See
+[PyTorch's macOS x86 deprecation announcement](https://dev-discuss.pytorch.org/t/pytorch-macos-x86-builds-deprecation-starting-january-2024/1690).
+
+GitHub Actions runs the complete CPU suite against the **installed wheel** on Windows,
+macOS, and Linux with Python 3.11 and 3.12. GPU paths need their respective hardware.
+
 ## Install and connect
 
 Requires Python 3.11+ and enough RAM/VRAM for the chosen model. The package uses the MCP Python
 SDK 1.x and Transformers 4.x intentionally; dependencies exclude their next major versions.
 
-```bash
-cd local-model-mcp
-python -m venv .venv
-# macOS/Linux:
-source .venv/bin/activate
-# Windows PowerShell instead: .venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-# CPU-only Linux/Windows: install CPU PyTorch first to avoid CUDA dependencies.
-python -m pip install "torch>=2.6,<3" --index-url https://download.pytorch.org/whl/cpu
-python -m pip install -e .
+Clone this repository and enter `local-model-mcp`, then use the commands for your OS.
+These commands invoke the virtual environment directly, so activation-policy changes
+are unnecessary. Install Git and Python 3.11+ first; the examples use Python 3.12 on Windows.
+
+**Windows — PowerShell:**
+
+```powershell
+py -3.12 -m venv .venv
+& .\.venv\Scripts\python.exe -m pip install --upgrade pip
+& .\.venv\Scripts\python.exe -m pip install "torch>=2.6,<3" --index-url https://download.pytorch.org/whl/cpu
+& .\.venv\Scripts\python.exe -m pip install -e .
+& .\.venv\Scripts\python.exe examples/make_tiny_model.py --root ".\model-lab"
+& .\.venv\Scripts\python.exe -m local_model_mcp.server --root ".\model-lab" --print-mcp-config
 ```
 
-For NVIDIA or Apple GPUs, install the appropriate PyTorch build for your system in place of
-the CPU-only command. Training defaults to float32; bfloat16 training uses autocast while
+**macOS — Terminal (Apple silicon):**
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install "torch>=2.6,<3"
+.venv/bin/python -m pip install -e .
+.venv/bin/python examples/make_tiny_model.py --root "./model-lab"
+.venv/bin/python -m local_model_mcp.server --root "./model-lab" --print-mcp-config
+```
+
+**Linux — Terminal:**
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install "torch>=2.6,<3" --index-url https://download.pytorch.org/whl/cpu
+.venv/bin/python -m pip install -e .
+.venv/bin/python examples/make_tiny_model.py --root "./model-lab"
+.venv/bin/python -m local_model_mcp.server --root "./model-lab" --print-mcp-config
+```
+
+For NVIDIA GPUs, use [PyTorch's installation selector](https://pytorch.org/get-started/locally/)
+in place of the CPU-only PyTorch command. The macOS package already includes the MPS backend
+where supported. Training defaults to float32; bfloat16 training uses autocast while
 keeping trainable parameters in float32. Apple MPS uses float32.
 
 Create a dedicated workspace, and **copy** a local Hugging Face model into it:
@@ -48,26 +97,33 @@ All tokenizer assets required by your model must be present. Sharded models use
 copy the resolved files when using a Hugging Face cache snapshot. The server creates missing
 workspace directories when it starts.
 
-Add this entry to the MCP configuration for your local MCP host. Replace both absolute paths:
+Copy the JSON printed by `--print-mcp-config` into your MCP host's configuration.
+The command generates absolute paths for the current Python environment and workspace,
+including correct Windows backslash escaping. It does not create or modify the workspace.
+The resulting configuration has this shape (the generated paths depend on your OS):
 
 ```json
 {
   "mcpServers": {
     "local-model-lab": {
-      "command": "/absolute/path/local-model-mcp/.venv/bin/local-model-mcp",
-      "args": ["--root", "/absolute/path/model-lab"]
+      "command": "/absolute/path/local-model-mcp/.venv/bin/python",
+      "args": ["-m", "local_model_mcp.server", "--root", "/absolute/path/model-lab"]
     }
   }
 }
 ```
 
-On Windows the command is the absolute path to `.venv\\Scripts\\local-model-mcp.exe`.
+On Windows the generated command is the absolute path to `.venv\\Scripts\\python.exe`.
 The host needs to support launching **local stdio MCP servers**. A hosted-only connector
 cannot access your machine's checkpoints by itself. This package does not provide a public
 HTTP endpoint or connect itself to a hosted chat service.
 
 Run manually with `local-model-mcp --root /absolute/path/model-lab`. Without `--root`,
-`LOCAL_MODEL_MCP_ROOT` is used, then `~/.local/share/local-model-mcp`.
+`LOCAL_MODEL_MCP_ROOT` is used, then the native workspace directory in the table above.
+When upgrading from 0.1.0, an existing legacy `~/.local/share/local-model-mcp` workspace
+is reused if no native workspace exists. An explicit `--root` always takes priority.
+Move the project or virtual environment to another computer? Regenerate the MCP config
+on that computer so it uses the right interpreter path.
 
 ## Tools
 
@@ -255,7 +311,11 @@ They exercise real training, adapter merging, evaluation, generation, weight-edi
 and an actual stdio MCP client/server connection. `examples/make_tiny_model.py` creates a
 small runnable workspace for experimentation.
 
-The full test result and exact tested dependencies are included in `VALIDATION.md`.
+The recorded local test result and exact tested dependencies are in `VALIDATION.md`.
+The [Actions page](https://github.com/Doughboyfressh/local-model-mcp/actions) shows the latest
+native Windows/macOS/Linux results. The suite uses CPU explicitly on every runner and
+exercises Unicode workspace paths, real worker subprocesses, checkpoint edits, training,
+and a stdio MCP client launched from the generated configuration.
 
 ## API references
 

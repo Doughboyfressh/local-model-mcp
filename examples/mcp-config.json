@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "local-model-lab": {
-      "command": "/absolute/path/local-model-mcp/.venv/bin/local-model-mcp",
-      "args": ["--root", "/absolute/path/model-lab"]
+      "command": "/absolute/path/local-model-mcp/.venv/bin/python",
+      "args": ["-m", "local_model_mcp.server", "--root", "/absolute/path/model-lab"]
     }
   }
 }

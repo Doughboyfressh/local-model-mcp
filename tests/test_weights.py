@@ -181,22 +181,30 @@ def test_edit_validation(edit):
         WeightEdit(tensor="weight", **edit)
 
 
-def test_paths_dataset_and_symlinks(checkpoint, tmp_path):
+def test_paths_and_dataset(checkpoint):
     with pytest.raises(ValueError):
         checkpoint.model("../escape")
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (checkpoint.root / "models" / "linked").symlink_to(outside)
-    with pytest.raises(ValueError, match="Symlinks"):
-        checkpoint.model("linked")
-    (checkpoint.model("base") / "linked.json").symlink_to(tmp_path / "outside.json")
-    with pytest.raises(ValueError, match="symlink"):
-        checkpoint.model("base")
     with pytest.raises(ValueError):
         Example(text="x", messages=[{"role": "user", "content": "x"}])
     checkpoint.write_dataset("train", [Example(text="one two")])
     with pytest.raises(FileExistsError):
         checkpoint.write_dataset("train", [Example(text="different")])
+
+
+def test_symlinks_rejected(checkpoint, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    try:
+        (checkpoint.root / "models" / "linked").symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows account lacks the symlink privilege")
+        raise
+    with pytest.raises(ValueError, match="Symlinks"):
+        checkpoint.model("linked")
+    (checkpoint.model("base") / "linked.json").symlink_to(tmp_path / "outside.json")
+    with pytest.raises(ValueError, match="symlink"):
+        checkpoint.model("base")
 
 
 def test_invalid_index_and_quantization_rejected(checkpoint):

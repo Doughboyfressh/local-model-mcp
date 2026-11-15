@@ -2,14 +2,14 @@ import hashlib
 import json
 import math
 import shutil
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import torch
 from safetensors import safe_open
 from safetensors.torch import load, load_file, save_file
 
 from .schemas import EditRequest
-from .workspace import Workspace, json_write, sha256
+from .workspace import Workspace, json_write, replace_file, sha256
 
 MAX_EDIT_ELEMENTS = 100_000_000
 MAX_ASSET_BYTES = 256 * 1024 * 1024
@@ -30,10 +30,12 @@ class Checkpoint:
                 "Ambiguous checkpoint: keep exactly one model or adapter weight layout"
             )
         config = path / "config.json"
-        if config.exists() and json.loads(config.read_text()).get("quantization_config"):
+        if config.exists() and json.loads(config.read_text(encoding="utf-8")).get(
+            "quantization_config"
+        ):
             raise ValueError("Quantized checkpoints are unsupported; use unquantized safetensors")
         if (path / "model.safetensors.index.json").is_file():
-            index = json.loads((path / "model.safetensors.index.json").read_text())
+            index = json.loads((path / "model.safetensors.index.json").read_text(encoding="utf-8"))
             mapping = index.get("weight_map", {})
             if not isinstance(mapping, dict) or not mapping:
                 raise ValueError("Invalid shard index")
@@ -54,6 +56,7 @@ class Checkpoint:
             if (
                 not isinstance(filename, str)
                 or Path(filename).name != filename
+                or PureWindowsPath(filename).name != filename
                 or not filename.endswith(".safetensors")
             ):
                 raise ValueError("Shard names must be top-level safetensors files")
@@ -80,7 +83,7 @@ class Checkpoint:
     def revision(self):
         # Include configs and tokenizer bytes, not just tensor metadata.
         files = {
-            str(p.relative_to(self.path)): sha256(p)
+            p.relative_to(self.path).as_posix(): sha256(p)
             for p in sorted(self.path.rglob("*"))
             if p.is_file()
         }
@@ -252,7 +255,7 @@ def run_edits(checkpoint, request, assets, *, save=False):
             save_file(tensors, temporary, metadata=metadata)
             # Release memory maps before replacing the shard (also needed on Windows).
             del tensors
-            temporary.replace(checkpoint.path / shard)
+            replace_file(temporary, checkpoint.path / shard)
     return summaries
 
 
@@ -290,7 +293,11 @@ def apply(workspace: Workspace, request: EditRequest, output: str, expected_plan
             raise ValueError("Stale or different edit plan; preview the exact request again")
         summaries = run_edits(checkpoint, request, assets, save=True)
         previous_manifest = source / "local_model_manifest.json"
-        previous = json.loads(previous_manifest.read_text()) if previous_manifest.exists() else {}
+        previous = (
+            json.loads(previous_manifest.read_text(encoding="utf-8"))
+            if previous_manifest.exists()
+            else {}
+        )
         json_write(
             stage / "local_model_manifest.json",
             {

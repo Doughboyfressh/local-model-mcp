@@ -24,8 +24,8 @@ class Worker:
     def __init__(self, workspace, job_id):
         self.workspace = workspace
         self.run = workspace.path("runs", job_id)
-        self.payload = json.loads((self.run / "request.json").read_text())
-        self.state = json.loads((self.run / "status.json").read_text())
+        self.payload = json.loads((self.run / "request.json").read_text(encoding="utf-8"))
+        self.state = json.loads((self.run / "status.json").read_text(encoding="utf-8"))
         self.started = time.monotonic()
 
     def check(self):
@@ -98,7 +98,7 @@ class Worker:
             adapter = self.workspace.model(request.adapter)
             manifest = adapter / "local_model_manifest.json"
             if manifest.exists():
-                origin = json.loads(manifest.read_text()).get("base_model_revision")
+                origin = json.loads(manifest.read_text(encoding="utf-8")).get("base_model_revision")
                 if origin and origin != self.payload["fingerprints"]["model"]:
                     raise ValueError(
                         "Adapter was trained against a different base checkpoint revision"
@@ -198,7 +198,7 @@ class Worker:
             trainable_parameters=sum(p.numel() for p in parameters),
             device=str(device),
         )
-        with (self.run / "metrics.jsonl").open("w") as metrics:
+        with (self.run / "metrics.jsonl").open("w", encoding="utf-8", newline="\n") as metrics:
             for step in range(1, request.max_steps + 1):
                 self.check()
                 optimizer.zero_grad(set_to_none=True)

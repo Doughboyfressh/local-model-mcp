@@ -37,7 +37,13 @@ def run(jobs, kind, request):
 def test_real_full_training_evaluation_generation_and_reload(workspace):
     jobs = Jobs(workspace)
     base_revision = Checkpoint(workspace.model("tiny")).revision()
-    evaluation = EvaluateRequest(model="tiny", dataset="held-out", max_length=32, batch_size=2)
+    evaluation = EvaluateRequest(
+        model="tiny",
+        dataset="held-out",
+        max_length=32,
+        batch_size=2,
+        device="cpu",
+    )
     before = run(jobs, "evaluate", evaluation)
     trained = run(
         jobs,
@@ -47,6 +53,7 @@ def test_real_full_training_evaluation_generation_and_reload(workspace):
             dataset="train",
             output="full",
             method="full",
+            device="cpu",
             max_steps=15,
             learning_rate=0.02,
             batch_size=2,
@@ -61,7 +68,14 @@ def test_real_full_training_evaluation_generation_and_reload(workspace):
     model = AutoModelForCausalLM.from_pretrained(workspace.model("full"), local_files_only=True)
     assert model.config.vocab_size == 16
     generated = run(
-        jobs, "generate", GenerateRequest(model="full", prompt="the sky is", max_new_tokens=3)
+        jobs,
+        "generate",
+        GenerateRequest(
+            model="full",
+            prompt="the sky is",
+            max_new_tokens=3,
+            device="cpu",
+        ),
     )
     assert 1 <= generated["generated_tokens"] <= 3
     assert isinstance(generated["text"], str)
@@ -77,6 +91,7 @@ def test_real_lora_training_and_merge(workspace):
             dataset="train",
             output="adapter",
             method="lora",
+            device="cpu",
             max_steps=8,
             learning_rate=0.02,
             batch_size=2,
@@ -91,11 +106,33 @@ def test_real_lora_training_and_merge(workspace):
     assert any(
         bool(adapter.tensor(key).abs().sum() > 0) for key in adapter.catalog if "lora_B" in key
     )
-    evaluation = EvaluateRequest(model="tiny", adapter="adapter", dataset="held-out", batch_size=2)
+    evaluation = EvaluateRequest(
+        model="tiny",
+        adapter="adapter",
+        dataset="held-out",
+        batch_size=2,
+        device="cpu",
+    )
     adapted = run(jobs, "evaluate", evaluation)
-    run(jobs, "merge", MergeRequest(model="tiny", adapter="adapter", output="merged"))
+    run(
+        jobs,
+        "merge",
+        MergeRequest(
+            model="tiny",
+            adapter="adapter",
+            output="merged",
+            device="cpu",
+        ),
+    )
     merged = run(
-        jobs, "evaluate", EvaluateRequest(model="merged", dataset="held-out", batch_size=2)
+        jobs,
+        "evaluate",
+        EvaluateRequest(
+            model="merged",
+            dataset="held-out",
+            batch_size=2,
+            device="cpu",
+        ),
     )
     assert merged["loss"] == pytest.approx(adapted["loss"], abs=1e-5)
     assert Checkpoint(workspace.model("merged")).kind == "model"
@@ -118,11 +155,12 @@ def test_cancellation_concurrency_and_restart_status(workspace):
             model="tiny",
             dataset="train",
             output="cancelled",
+            device="cpu",
             max_steps=100_000,
         ),
     )
     with pytest.raises(ValueError, match="already active"):
-        jobs.start("generate", GenerateRequest(model="tiny", prompt="hello"))
+        jobs.start("generate", GenerateRequest(model="tiny", prompt="hello", device="cpu"))
     # A new manager instance can inspect and cancel a worker started by the previous instance.
     restarted = Jobs(workspace)
     assert restarted.status(job["job_id"])["status"] in {"queued", "running"}

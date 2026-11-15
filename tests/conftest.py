@@ -13,4 +13,4 @@ def workspace(tmp_path):
     spec = importlib.util.spec_from_file_location("tiny_example", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.create_tiny(tmp_path / "lab")
+    return module.create_tiny(tmp_path / "model lab 日本語")
