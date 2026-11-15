@@ -323,7 +323,10 @@ def test_cancelled_benchmark_stops_child_and_removes_temporary_inputs(pair):
     assert wait_job(jobs, job)["status"] == "cancelled"
     assert not (run / ".benchmark").exists()
     assert not (run / "benchmark.json").exists()
-    assert not any(child.is_running() for child in children)
+    # Wait for termination, rather than treating PID visibility as active execution.
+    # Windows can retain an exited process object while handles are still open.
+    _, alive = psutil.wait_procs(children, timeout=10)
+    assert not alive, [(child.pid, child.name()) for child in alive]
 
 
 def test_cli_benchmark_on_local_random_checkpoint(qwen_factory):
