@@ -22,7 +22,7 @@ from .schemas import (
     Name,
     TrainRequest,
 )
-from .workspace import Workspace
+from .workspace import Workspace, read_json
 
 READ = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
@@ -124,11 +124,7 @@ def create_server(root: str | Path) -> FastMCP:
             "total_elements": sum(item["elements"] for item in checkpoint.catalog.values()),
             "tensors": items[offset : offset + limit],
             "next_offset": offset + limit if offset + limit < len(items) else None,
-            "manifest": (
-                json.loads(manifest_path.read_text(encoding="utf-8"))
-                if manifest_path.exists()
-                else None
-            ),
+            "manifest": read_json(manifest_path) if manifest_path.exists() else None,
         }
 
     @server.tool(annotations=READ)

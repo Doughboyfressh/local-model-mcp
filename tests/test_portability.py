@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -12,7 +13,7 @@ from safetensors.torch import save_file
 from local_model_mcp import runtime
 from local_model_mcp.schemas import Example, TrainRequest
 from local_model_mcp.weights import Checkpoint
-from local_model_mcp.workspace import Workspace, json_write, name, sha256
+from local_model_mcp.workspace import Workspace, json_write, name, read_json, sha256
 
 
 @pytest.mark.parametrize("value", ["CON", "con.json", "AUX", "NUL", "COM1", "LPT9.txt", "model."])
@@ -60,9 +61,9 @@ def test_json_writes_with_concurrent_readers(tmp_path):
     with ThreadPoolExecutor(max_workers=2) as executor:
         writing = executor.submit(write_updates)
         for _ in range(100):
-            assert isinstance(json.loads(path.read_text(encoding="utf-8"))["step"], int)
+            assert isinstance(read_json(path)["step"], int)
         writing.result(timeout=10)
-    assert json.loads(path.read_text(encoding="utf-8"))["step"] == 49
+    assert read_json(path)["step"] == 49
     assert not list(tmp_path.glob(".write-*"))
 
 
@@ -87,6 +88,26 @@ def test_windows_sharing_collision_preserves_atomic_json(tmp_path, monkeypatch):
     monkeypatch.setattr(module.os, "replace", colliding_replace)
     json_write(path, {"step": 1})
     assert json.loads(path.read_text(encoding="utf-8")) == {"step": 1}
+
+
+def test_windows_read_sharing_collision_is_retried(tmp_path, monkeypatch):
+    path = tmp_path / "status.json"
+    json_write(path, {"step": 7})
+    real_open = Path.open
+    attempts = 0
+
+    def colliding_open(candidate, *args, **kwargs):
+        nonlocal attempts
+        if candidate == path:
+            attempts += 1
+            if attempts < 3:
+                error = PermissionError("Windows sharing violation while reading")
+                error.winerror = 32
+                raise error
+        return real_open(candidate, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", colliding_open)
+    assert read_json(path) == {"step": 7}
 
 
 def test_native_default_and_legacy_workspace(tmp_path, monkeypatch):
@@ -115,6 +136,7 @@ def test_config_printing_handles_spaces_and_unicode_without_creating_workspace(t
         encoding="utf-8",
     )
     launch = json.loads(process.stdout)["mcpServers"]["local-model-lab"]
-    assert Path(launch["command"]) == Path(sys.executable)
+    # CPython may normalize '..' when it starts a subprocess; retain the venv path.
+    assert Path(os.path.abspath(launch["command"])) == Path(os.path.abspath(sys.executable))
     assert launch["args"] == ["-m", "local_model_mcp.server", "--root", str(root.resolve())]
     assert not root.exists()

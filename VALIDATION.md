@@ -6,7 +6,7 @@ Python 3.12.14, and CPU PyTorch.
 ## Results
 
 - `ruff check .`: passed.
-- `pytest -q`: **36 passed in 54.59 seconds**.
+- `pytest -q`: **37 passed in 54.06 seconds**.
 - `python -m build`: source distribution and Python wheel built successfully.
 - The generated MCP configuration launches a real stdio server from a workspace
   whose path includes spaces and Japanese characters.
@@ -40,7 +40,7 @@ No pretrained model checkpoint is downloaded. They verify:
 - Correct masking of padding when padding and EOS share a token ID.
 - Portable model/dataset names, UTF-8 datasets and JSON, deterministic checkpoint
   fingerprints for nested paths, concurrent JSON readers, and Windows file-sharing
-  collision recovery.
+  collision recovery on both reads and writes.
 - Native default workspace selection, discovery of legacy workspaces, environment
   overrides, and configuration generation without creating a workspace.
 

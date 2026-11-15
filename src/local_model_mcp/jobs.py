@@ -1,4 +1,3 @@
-import json
 import os
 import subprocess
 import sys
@@ -8,7 +7,7 @@ import uuid
 import psutil
 
 from .weights import Checkpoint
-from .workspace import json_write, sha256
+from .workspace import json_write, read_json, sha256
 
 TERMINAL = {"completed", "failed", "cancelled", "interrupted"}
 
@@ -20,10 +19,10 @@ class Jobs:
 
     def status(self, job_id: str, log_lines=20):
         path = self.workspace.path("runs", job_id)
-        status = json.loads((path / "status.json").read_text(encoding="utf-8"))
+        status = read_json(path / "status.json")
         process_path = path / "process.json"
         if status["status"] not in TERMINAL and process_path.exists():
-            identity = json.loads(process_path.read_text(encoding="utf-8"))
+            identity = read_json(process_path)
             try:
                 process = psutil.Process(identity["pid"])
                 alive = (
@@ -34,7 +33,7 @@ class Jobs:
                 alive = False
             if not alive:
                 # Re-read: the worker may have just committed its terminal status.
-                status = json.loads((path / "status.json").read_text(encoding="utf-8"))
+                status = read_json(path / "status.json")
                 if status["status"] not in TERMINAL:
                     status = {**status, "status": "interrupted", "error": "Worker exited"}
         child = self.children.get(job_id)

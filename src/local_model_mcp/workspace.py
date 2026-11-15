@@ -1,3 +1,4 @@
+import errno
 import hashlib
 import json
 import os
@@ -38,6 +39,24 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _windows_sharing_error(exc: PermissionError) -> bool:
+    return getattr(exc, "winerror", None) in {5, 32, 33} or (
+        os.name == "nt" and exc.errno == errno.EACCES
+    )
+
+
+def read_json(path: Path):
+    """Read UTF-8 JSON while a worker may atomically replace it on Windows."""
+    for attempt in range(10):
+        try:
+            with path.open(encoding="utf-8") as stream:
+                return json.load(stream)
+        except PermissionError as exc:
+            if not _windows_sharing_error(exc) or attempt == 9:
+                raise
+            time.sleep(0.01 * (attempt + 1))
+
+
 def replace_file(source: Path, destination: Path) -> None:
     """Replace a closed file, tolerating short Windows reader/share-lock collisions."""
     for attempt in range(10):
@@ -45,7 +64,7 @@ def replace_file(source: Path, destination: Path) -> None:
             os.replace(source, destination)
             return
         except PermissionError as exc:
-            if getattr(exc, "winerror", None) not in {5, 32, 33} or attempt == 9:
+            if not _windows_sharing_error(exc) or attempt == 9:
                 raise
             time.sleep(0.01 * (attempt + 1))
 

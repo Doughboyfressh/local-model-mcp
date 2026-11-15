@@ -13,7 +13,7 @@ from filelock import FileLock
 
 from .schemas import EvaluateRequest, GenerateRequest, MergeRequest, TrainRequest
 from .weights import Checkpoint
-from .workspace import Workspace, json_write, sha256
+from .workspace import Workspace, json_write, read_json, sha256
 
 
 class Cancelled(Exception):
@@ -24,8 +24,8 @@ class Worker:
     def __init__(self, workspace, job_id):
         self.workspace = workspace
         self.run = workspace.path("runs", job_id)
-        self.payload = json.loads((self.run / "request.json").read_text(encoding="utf-8"))
-        self.state = json.loads((self.run / "status.json").read_text(encoding="utf-8"))
+        self.payload = read_json(self.run / "request.json")
+        self.state = read_json(self.run / "status.json")
         self.started = time.monotonic()
 
     def check(self):
@@ -98,7 +98,7 @@ class Worker:
             adapter = self.workspace.model(request.adapter)
             manifest = adapter / "local_model_manifest.json"
             if manifest.exists():
-                origin = json.loads(manifest.read_text(encoding="utf-8")).get("base_model_revision")
+                origin = read_json(manifest).get("base_model_revision")
                 if origin and origin != self.payload["fingerprints"]["model"]:
                     raise ValueError(
                         "Adapter was trained against a different base checkpoint revision"

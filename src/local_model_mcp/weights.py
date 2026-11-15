@@ -9,7 +9,7 @@ from safetensors import safe_open
 from safetensors.torch import load, load_file, save_file
 
 from .schemas import EditRequest
-from .workspace import Workspace, json_write, replace_file, sha256
+from .workspace import Workspace, json_write, read_json, replace_file, sha256
 
 MAX_EDIT_ELEMENTS = 100_000_000
 MAX_ASSET_BYTES = 256 * 1024 * 1024
@@ -30,12 +30,10 @@ class Checkpoint:
                 "Ambiguous checkpoint: keep exactly one model or adapter weight layout"
             )
         config = path / "config.json"
-        if config.exists() and json.loads(config.read_text(encoding="utf-8")).get(
-            "quantization_config"
-        ):
+        if config.exists() and read_json(config).get("quantization_config"):
             raise ValueError("Quantized checkpoints are unsupported; use unquantized safetensors")
         if (path / "model.safetensors.index.json").is_file():
-            index = json.loads((path / "model.safetensors.index.json").read_text(encoding="utf-8"))
+            index = read_json(path / "model.safetensors.index.json")
             mapping = index.get("weight_map", {})
             if not isinstance(mapping, dict) or not mapping:
                 raise ValueError("Invalid shard index")
@@ -293,11 +291,7 @@ def apply(workspace: Workspace, request: EditRequest, output: str, expected_plan
             raise ValueError("Stale or different edit plan; preview the exact request again")
         summaries = run_edits(checkpoint, request, assets, save=True)
         previous_manifest = source / "local_model_manifest.json"
-        previous = (
-            json.loads(previous_manifest.read_text(encoding="utf-8"))
-            if previous_manifest.exists()
-            else {}
-        )
+        previous = read_json(previous_manifest) if previous_manifest.exists() else {}
         json_write(
             stage / "local_model_manifest.json",
             {
