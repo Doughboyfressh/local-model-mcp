@@ -12,6 +12,7 @@ import torch
 from filelock import FileLock
 
 from .schemas import (
+    BenchmarkRequest,
     EvaluateRequest,
     GenerateRequest,
     MergeRequest,
@@ -46,7 +47,7 @@ class Worker:
 
     def verify_inputs(self):
         request, fingerprints = self.payload["request"], self.payload["fingerprints"]
-        for key in ("model", "adapter"):
+        for key in ("model", "adapter", "candidate"):
             if key in fingerprints:
                 checkpoint = Checkpoint(self.workspace.model(request[key]))
                 if checkpoint.revision() != fingerprints[key]:
@@ -375,6 +376,18 @@ class Worker:
             job_id=self.state["job_id"],
         )
 
+    def benchmark(self, request):
+        from .benchmark import run_benchmark
+
+        return run_benchmark(
+            self.workspace,
+            request,
+            fingerprints=self.payload["fingerprints"],
+            job_id=self.state["job_id"],
+            check=self.check,
+            update=self.update,
+        )
+
     def execute(self):
         kind = self.payload["kind"]
         schema = {
@@ -383,6 +396,7 @@ class Worker:
             "generate": GenerateRequest,
             "merge": MergeRequest,
             "architecture": QwenArchitectureJobRequest,
+            "benchmark": BenchmarkRequest,
         }[kind]
         try:
             with FileLock(self.workspace.root / ".compute.lock", timeout=0):

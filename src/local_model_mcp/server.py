@@ -10,10 +10,11 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from . import __version__, qwen, weights
+from . import __version__, benchmark, qwen, weights
 from .jobs import Jobs
 from .runtime import default_root, mcp_config
 from .schemas import (
+    BenchmarkRequest,
     EditRequest,
     EvaluateRequest,
     Example,
@@ -51,6 +52,10 @@ def create_server(root: str | Path) -> FastMCP:
             "identity block insertion and MLP widening with no training. The job must pass "
             "CPU float32 cached and uncached logit comparisons before publishing. "
             "Preserving the existing function adds no new learned abilities."
+            " Use start_qwen_benchmark to compare two existing local checkpoints without "
+            "training; poll job_status and read get_benchmark_report. A completed benchmark "
+            "may report failed checks. Reports distinguish numerical agreement from held-out "
+            "loss, synchronized repeated timing, and isolated process memory measurements."
         ),
     )
 
@@ -71,6 +76,14 @@ def create_server(root: str | Path) -> FastMCP:
                 "training_required": False,
                 "verification": "CPU float32 eager inference, with and without KV cache",
                 "constraints": "Dense full attention; no MoE, VL, hybrid, or quantized models",
+            },
+            "benchmark": {
+                "model_types": ["qwen2", "qwen3"],
+                "training_required": False,
+                "default_device": "cpu",
+                "optional_devices": ["cuda", "mps"],
+                "reports": ["json", "markdown"],
+                "isolated_model_processes": True,
             },
             "tasks": ["causal language modeling"],
             "devices": {
@@ -274,6 +287,24 @@ def create_server(root: str | Path) -> FastMCP:
         Poll job_status; results and a persistent verification report are saved with the job.
         """
         return await asyncio.to_thread(jobs.start, "architecture", request)
+
+    @server.tool(annotations=WRITE)
+    async def start_qwen_benchmark(request: BenchmarkRequest) -> dict[str, Any]:
+        """Compare two local dense Qwen checkpoints in isolated processes, without training.
+
+        Reports full/cached logit agreement, fixed-step greedy token agreement, optional held-out
+        loss/perplexity, repeated synchronized timing, checkpoint sizes, and sampled process RAM.
+        CPU is default. CUDA/MPS require local hardware; no model download or GPU provisioning.
+        Tokenizers must match. Timing uses exactly max_new_tokens steps, including after EOS.
+        Poll job_status: completed is distinct from checks passing. Reports are local JSON and
+        Markdown under the run directory. Generated text is excluded unless explicitly enabled.
+        """
+        return await asyncio.to_thread(jobs.start, "benchmark", request)
+
+    @server.tool(annotations=READ)
+    async def get_benchmark_report(job_id: Name) -> dict[str, Any]:
+        """Read the saved report for a completed benchmark, including failed comparison checks."""
+        return await asyncio.to_thread(benchmark.read_report, workspace, job_id)
 
     @server.tool(annotations=READ)
     def job_status(

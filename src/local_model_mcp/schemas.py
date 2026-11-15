@@ -151,3 +151,29 @@ class QwenArchitectureJobRequest(QwenArchitectureRequest):
         max_length=4,
     )
     max_validation_tokens: int = Field(default=32, ge=2, le=128)
+
+
+class BenchmarkRequest(StrictModel):
+    model: Name
+    candidate: Name
+    prompts: list[Annotated[str, Field(min_length=1, max_length=4096)]] = Field(
+        default_factory=lambda: ["The sky is", "Explain a simple idea.", "A useful test"],
+        min_length=1,
+        max_length=8,
+    )
+    dataset: Name | None = None
+    device: Literal["cpu", "auto", "cuda", "mps"] = "cpu"
+    dtype: Literal["float32", "float16", "bfloat16"] = "float32"
+    attention_implementation: Literal["eager", "sdpa"] = "eager"
+    max_prompt_tokens: int = Field(default=64, ge=2, le=2048)
+    max_new_tokens: int = Field(default=16, ge=1, le=128)
+    max_eval_tokens: int = Field(default=128, ge=2, le=2048)
+    max_examples: int = Field(default=100, ge=1, le=1000)
+    warmup_runs: int = Field(default=1, ge=0, le=5)
+    measured_runs: int = Field(default=3, ge=1, le=20)
+    num_threads: int = Field(default=4, ge=1, le=32)
+    atol: Finite | None = Field(default=None, ge=0, le=1)
+    rtol: Finite | None = Field(default=None, ge=0, le=1)
+    min_token_agreement: Finite = Field(default=1, ge=0, le=1)
+    max_loss_increase: Finite = Field(default=0.01, ge=0, le=10)
+    include_generated_text: bool = False

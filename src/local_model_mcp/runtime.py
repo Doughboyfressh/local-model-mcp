@@ -1,10 +1,17 @@
 """Platform-specific defaults and a shell-free MCP launch configuration."""
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
 from platformdirs import user_data_path
+
+
+def background_process_options() -> dict:
+    if sys.platform == "win32":
+        return {"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
 
 
 def default_root() -> Path:

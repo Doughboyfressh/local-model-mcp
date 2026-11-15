@@ -6,3 +6,8 @@ __pycache__/
 dist/
 *.egg-info/
 model-lab/
+/models/
+/datasets/
+/tensors/
+/runs/
+/reports/

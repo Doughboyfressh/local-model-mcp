@@ -6,6 +6,7 @@ import uuid
 
 import psutil
 
+from .runtime import background_process_options
 from .weights import Checkpoint
 from .workspace import json_write, read_json, sha256
 
@@ -77,6 +78,11 @@ class Jobs:
                 fingerprints = {"model": architecture_plan["source_revision"]}
             else:
                 fingerprints = {"model": checkpoint.revision()}
+            if kind == "benchmark":
+                candidate = Checkpoint(self.workspace.model(request.candidate))
+                if candidate.kind != "model":
+                    raise ValueError("Benchmark candidate must be a standalone model")
+                fingerprints["candidate"] = candidate.revision()
             if getattr(request, "adapter", None):
                 adapter = Checkpoint(self.workspace.model(request.adapter))
                 if adapter.kind != "adapter":
@@ -122,12 +128,6 @@ class Jobs:
                 }
             )
             # Keep workers independent of the MCP process's console/process group.
-            process_options = {"start_new_session": True}
-            if sys.platform == "win32":
-                process_options = {
-                    "creationflags": subprocess.CREATE_NO_WINDOW
-                    | subprocess.CREATE_NEW_PROCESS_GROUP,
-                }
             try:
                 with (run / "worker.log").open("wb") as log:
                     child = subprocess.Popen(
@@ -144,7 +144,7 @@ class Jobs:
                         stdout=log,
                         stderr=log,
                         env=env,
-                        **process_options,
+                        **background_process_options(),
                     )
                 self.children[job_id] = child
                 json_write(

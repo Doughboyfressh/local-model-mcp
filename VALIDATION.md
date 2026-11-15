@@ -1,13 +1,14 @@
 # Validation
 
-Version 0.2.0 validated locally on November 15, 2026, using Linux x86_64,
+Version 0.3.0 validated locally on November 15, 2026, using Linux x86_64,
 Python 3.12.14, and CPU PyTorch.
 
 ## Results
 
 - `ruff check .`: passed.
-- `pytest -q`: **74 passed in 83.25 seconds**.
+- `pytest -q`: **98 passed in 266.87 seconds**, including 24 benchmark checks.
 - `python -m build`: source distribution and Python wheel built successfully.
+- The built wheel installs successfully; both installed console entry points launch.
 - The generated MCP configuration launches a real stdio server from a workspace
   whose path includes spaces and Japanese characters.
 
@@ -20,7 +21,7 @@ recorded local run, not a claim about a completed remote workflow.
 The tests construct a tiny random GPT-2-style model and a local WordLevel tokenizer.
 No pretrained model checkpoint is downloaded. They verify:
 
-- An actual stdio MCP connection: initialization, all 20 tool schemas, annotations,
+- An actual stdio MCP connection: initialization, all 22 tool schemas, annotations,
   tensor inspection, preview/apply, structured results, input errors, and a generation job.
 - Real full-parameter training with PyTorch gradients, checkpoint saving, reload,
   evaluation, and generation.
@@ -71,6 +72,27 @@ The mathematical transformations target the same inference function. The impleme
 numerical gate checks finite probes with `atol=1e-5`, `rtol=1e-4`; this is not a guarantee
 for all inputs, storage precisions, GPU kernels, or external model-serving runtimes.
 Larger pretrained Qwen checkpoints and GPU execution remain deployment validation work.
+
+## Isolated checkpoint benchmarks
+
+The 24 benchmark tests use locally constructed random Qwen2 and Qwen3 fixtures,
+including a widened checkpoint. They download no pretrained weights. They cover:
+
+- Separate child processes for the reference and candidate, source fingerprint
+  preservation, measured CPU timings and process RSS, and JSON/Markdown reports.
+- Full-sequence and cached logits, fixed-length greedy output agreement, cache and
+  repeat consistency, and optional token-weighted held-out loss/perplexity.
+- Successful comparisons, deliberately changed weights, independent failed policy
+  checks, mismatched tokenizers, stale inputs, insufficient context, and invalid options.
+- Fixed workloads after EOS, no backward/optimizer calls, cancellation with child
+  process cleanup, private tensor cleanup, and generated text opt-in.
+- Actual CLI execution and a Qwen3 benchmark through the stdio MCP interface.
+- Device selection, synchronization, and CUDA/MPS memory API seams using mocks.
+
+Only CPU float32 runs were executed. Mocked CUDA/MPS checks establish API wiring,
+not GPU execution or performance. Random fixture losses do not measure pretrained
+model quality. A missing evaluation dataset is explicitly reported as quality not
+measured; a completed job may still have failed comparison checks.
 
 ## Numerical smoke test
 

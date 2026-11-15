@@ -147,6 +147,8 @@ on that computer so it uses the right interpreter path.
 | `inspect_qwen_architecture` | Validate a Qwen layout and inspect structural-edit limits |
 | `preview_qwen_architecture_change` | Preview a training-free structural change and obtain a plan token |
 | `start_qwen_architecture_change` | Rewrite, reload, and verify a new Qwen architecture in a background job |
+| `start_qwen_benchmark` | Compare existing local Qwen checkpoints, timings, memory, and optional held-out loss |
+| `get_benchmark_report` | Read the completed comparison report, including failed checks |
 | `job_status` / `list_jobs` / `cancel_job` | Persistent progress, results, cancellation |
 
 ## Change Qwen architecture without training
@@ -246,6 +248,115 @@ python examples/make_tiny_qwen.py --root ./model-lab --family qwen3
 These create tiny **random, untrained** checkpoints with the real Qwen module layouts.
 They validate the transformation workflow, not pretrained-model task quality. Their initial
 MLP width is 24; a widening preview can use `new_intermediate_size: 48`.
+
+## Benchmark an original and modified Qwen checkpoint
+
+Version 0.3.0 adds a **read-only model benchmark workflow**. It compares two already-present
+local checkpoints using the supported dense Qwen layouts above. It does not download models,
+provision a GPU, run training, edit weights, or upload reports. You can prepare the workflow
+from a phone; running your own checkpoint comparison waits until the models and hardware are
+available on your computer or server.
+
+The reference and candidate must have matching fast tokenizer definitions and output
+vocabulary sizes. Both use the same token IDs, context limits, precision, attention backend,
+thread count, and decoding workload. Source, candidate, tokenizer, and optional dataset
+fingerprints are retained with the result. Changed inputs invalidate the run.
+
+**MCP:** call `start_qwen_benchmark` after placing your reference and changed checkpoints under
+`models/qwen-original` and `models/qwen-wider`:
+
+```json
+{
+  "request": {
+    "model": "qwen-original",
+    "candidate": "qwen-wider",
+    "prompts": ["Explain a simple idea.", "The sky is"],
+    "dataset": "held-out",
+    "device": "cpu",
+    "dtype": "float32",
+    "warmup_runs": 1,
+    "measured_runs": 3,
+    "max_new_tokens": 16
+  }
+}
+```
+
+The dataset is optional: omit `dataset` if one is unavailable. Poll `job_status`, then
+call `get_benchmark_report` with its job ID. **Completed does not mean passed**: a numerical,
+generation, or configured loss check can fail while the job still completes and saves a report.
+
+**Command line:** the same workflow is available as `local-model-benchmark`. Use the executable
+inside your virtual environment (`.venv/bin/local-model-benchmark` on macOS/Linux, or
+`.venv\Scripts\local-model-benchmark.exe` on Windows). After installing the project, a typical
+command is:
+
+```bash
+local-model-benchmark --root ./model-lab --model qwen-original --candidate qwen-wider --dataset held-out --prompt "Explain a simple idea." --device cpu
+```
+
+The CLI waits and prints a JSON summary and local report paths. It exits with code 0 for
+passed configured checks, 1 for completed-but-failed checks, 2 for runtime/input failures,
+or 130 after requesting cancellation with Ctrl+C. `--no-wait` starts a job and returns its ID.
+The module form, `python -m local_model_mcp.benchmark_cli`, works on all supported platforms.
+
+Reports are saved as `runs/<job_id>/benchmark.json` and `benchmark.md`:
+
+| Measurement | Method and interpretation |
+| --- | --- |
+| Numerical agreement | Full-prompt logits and a cached next-token forward pass, using matched token IDs and explicit tolerances |
+| Generated token agreement | Exactly N greedy steps on both models, including after EOS, to keep work identical; this is not ordinary EOS-stopped chat generation |
+| Held-out loss/perplexity | Optional token-weighted next-token loss on your supplied dataset, with all nonpadding next tokens scored; not task-specific accuracy |
+| Timing | Repeated synchronized wall-clock measurements after warmup; prefill/first-token, decode, and total time are recorded |
+| Storage/parameters | Checkpoint file sizes, parameter counts, and loaded parameter storage bytes |
+| Process RAM | Sampled process RSS, including runtime overhead, with each model measured in a fresh child process |
+| GPU memory | CUDA process-local PyTorch peak allocated/reserved counters, or sampled MPS tensor/driver allocations when those backends are selected |
+
+Loading and tokenization are excluded from inference timings. Decode timings include the
+Python loop, attention-mask allocation, and cancellation polling. Model-runner RSS excludes
+the parent coordinator/tokenizer process. RSS/MPS sampling uses 10 ms intervals plus phase
+boundaries and can miss short-lived peaks; CUDA counters exclude non-PyTorch/other-process
+allocations. Raw timing samples are retained, and results depend on hardware, cache state,
+other workloads, and execution order. The reference runs first. Timing is diagnostic rather
+than an automatic claim that the changed architecture is faster.
+
+Each comparison combines numerical checks, cache/repeat consistency, greedy token agreement,
+and the optional loss threshold. Defaults are `min_token_agreement=1.0` and
+`max_loss_increase=0.01`. When no dataset is supplied, quality is explicitly **not measured**;
+the report does not treat prompt equivalence as a general task-quality assessment.
+
+| Precision | Default absolute tolerance | Default relative tolerance |
+| --- | ---: | ---: |
+| float32 | 0.00001 | 0.0001 |
+| float16 | 0.001 | 0.001 |
+| bfloat16 | 0.01 | 0.01 |
+
+`atol`/`rtol` can override these thresholds; every report records the selected policy.
+Finite prompt checks do not prove equivalence for every input. Greedy token ties can also
+produce different sequences despite small score differences. A passing report is scoped to
+the configured checks and data, not a guarantee of unchanged reasoning or new capabilities.
+
+CPU is the default device. `--device cuda` and `--device mps` select optional local GPU paths;
+`auto` selects an available accelerator. CPU accepts float32/bfloat16, CUDA accepts
+float32/float16 and hardware-supported bfloat16, and the MPS path accepts float32/float16.
+`attention_implementation` can be `eager` (default) or `sdpa`. GPU code paths require your
+hardware for actual validation; mocked API tests are not GPU execution tests.
+
+Limits: 1–8 prompts with at least two tokens each, 2–2048 prompt tokens (default 64),
+1–128 generated steps (default 16), 0–5 warmups, 1–20 measured runs, and 1–32 CPU threads.
+Optional evaluation uses up to 1,000 examples with 2–2048 tokens per example (defaults:
+100 examples and 128 tokens). Inputs are right-truncated to common context limits;
+truncation counts are reported. Probe logit buffers and each evaluation example are bounded
+by the 32-million-element logit budget.
+
+Generated text is omitted from reports by default; `include_generated_text: true` or
+`--include-generated-text` enables local text samples. Requests and reports remain in the
+workspace. Temporary token/logit files are removed after normal completion or handled
+cancellation/failure. Root `models/`, `datasets/`, `runs/`, and `reports/` directories are
+Git-ignored, as is the example `model-lab/` workspace. Nothing publishes results automatically.
+
+The test suite runs this workflow only on locally created, randomly initialized tiny Qwen
+fixtures. Running a real pretrained checkpoint is a separate deployment step once you have
+chosen the model, hardware, and visibility of its data and results.
 
 ## Fine-tune workflow
 

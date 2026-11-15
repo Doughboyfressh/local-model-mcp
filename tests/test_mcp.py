@@ -34,7 +34,7 @@ def test_real_stdio_protocol_and_weight_edit(workspace):
                 await client.initialize()
                 listing = await client.list_tools()
                 tools = {tool.name: tool for tool in listing.tools}
-                assert len(tools) == 20
+                assert len(tools) == 22
                 assert tools["read_tensor"].annotations.readOnlyHint
                 assert tools["apply_weight_edits"].annotations.destructiveHint is False
                 capabilities = await client.call_tool("capabilities", {})
