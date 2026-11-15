@@ -1,0 +1,18 @@
+# Exact versions tested on Linux, Python 3.12.14, CPU.
+# Install the platform-appropriate PyTorch build first; see README.
+# The tested torch build is 2.15.0+cpu; the constraint below permits its CPU/CUDA variants.
+torch==2.15.0
+mcp==1.30.0
+transformers==4.57.6
+peft==0.18.1
+safetensors==0.8.0
+pydantic==2.14.3
+filelock==3.32.7
+psutil==7.2.2
+accelerate==1.15.0
+tokenizers==0.22.2
+huggingface-hub==0.36.2
+numpy==2.5.4
+pytest==9.2.0
+ruff==0.17.5
+build==1.6.1

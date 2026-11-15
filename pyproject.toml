@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "local-model-mcp"
+version = "0.1.0"
+description = "Local MCP tools for fine-tuning and versioned tensor editing of AI checkpoints"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+  "mcp>=1.29,<2",
+  "pydantic>=2.11,<3",
+  "torch>=2.6,<3",
+  "safetensors>=0.6,<1",
+  "transformers>=4.57.1,<5",
+  "peft>=0.17,<0.19",
+  "filelock>=3.16,<4",
+  "psutil>=6,<8",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.12", "build>=1"]
+
+[project.scripts]
+local-model-mcp = "local_model_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/local_model_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
