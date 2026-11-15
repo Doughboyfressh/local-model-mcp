@@ -6,6 +6,8 @@ and directly edit their checkpoint tensors. Runs entirely on your machine over *
 **Implemented:** LoRA and full-parameter fine-tuning, tensor inspection, slice editing,
 tensor replacement, additive and low-rank updates, evaluation, generation, adapter merging,
 background jobs, and checkpoint provenance. Every mutation creates a new checkpoint version.
+Dense Qwen2/Qwen2.5 and Qwen3 also support training-free identity block insertion and MLP
+widening, with strict reload checks and numerical verification before publication.
 
 ## Windows, macOS, and Linux
 
@@ -142,7 +144,108 @@ on that computer so it uses the right interpreter path.
 | `start_evaluation` | Token-weighted loss and perplexity job |
 | `start_generation` | Raw-text completion job |
 | `merge_adapter` | Merge LoRA into a new standalone checkpoint |
+| `inspect_qwen_architecture` | Validate a Qwen layout and inspect structural-edit limits |
+| `preview_qwen_architecture_change` | Preview a training-free structural change and obtain a plan token |
+| `start_qwen_architecture_change` | Rewrite, reload, and verify a new Qwen architecture in a background job |
 | `job_status` / `list_jobs` / `cancel_job` | Persistent progress, results, cancellation |
+
+## Change Qwen architecture without training
+
+Version 0.2.0 adds structural edits for **canonical dense Qwen2/Qwen2.5 and Qwen3 causal
+language models**, identified by `model_type: "qwen2"` or `"qwen3"`. These operations
+perform no gradient updates, optimizer steps, pretraining, fine-tuning, or distillation.
+
+| Operation | Structural change | Initialization |
+| --- | --- | --- |
+| `insert_identity_blocks` | Add one block after each selected original layer | Copy that layer, then zero the attention output projection (including its bias if present) and MLP down projection. Residual paths initially pass the input through unchanged. |
+| `widen_mlp` | Increase every block's `intermediate_size` | Keep all original gate/up rows and down columns. Initialize additional gate/up rows by cycling existing rows, and give the additional channels zero down-projection columns. |
+
+Both preserve the inference equations in exact arithmetic for the supported layout.
+Widening uses **zero output connections**, rather than splitting/rounding the original
+weights. Original parameter entries and storage dtypes are retained. Additional layers
+or channels increase storage/compute and do not add new learned abilities by themselves.
+This feature does not remove layers, change attention-head counts or hidden-state width,
+or convert Qwen into another model family.
+
+Supported checkpoints must use unquantized safetensors and SiLU MLPs with full attention.
+MoE, multimodal/VL, hybrid/recurrent, sliding-window, custom-code, and adapter-only checkpoints
+are rejected. Qwen2.5 dense models use the Qwen2 layout. Other Qwen-branded architectures
+are not implied to be supported; the inspector validates the actual configuration,
+complete tensor names, and shapes against the installed Transformers implementation.
+
+**Workflow:** place your full local checkpoint under `models/my-qwen`, then call
+`inspect_qwen_architecture` with `{"model": "my-qwen"}`. Preview an insertion:
+
+```json
+{
+  "request": {
+    "model": "my-qwen",
+    "operation": "insert_identity_blocks",
+    "insert_after": [0]
+  }
+}
+```
+
+Indices refer to original layers and start at zero. They must be unique; up to 32 blocks
+can be inserted per operation, with at most 512 resulting layers. The preview reports
+before/after dimensions, parameter counts, estimated output weight bytes, and `plan_token`.
+For widening, use `operation: "widen_mlp"` and `new_intermediate_size` instead of `insert_after`.
+The new width must exceed the original and be at most 4x larger (maximum 1,000,000).
+
+Launch `start_qwen_architecture_change` with the same structural request, a new output name,
+and the preview token:
+
+```json
+{
+  "request": {
+    "model": "my-qwen",
+    "operation": "insert_identity_blocks",
+    "insert_after": [0],
+    "output": "my-qwen-deeper-v1",
+    "expected_plan_token": "<plan_token returned by preview>",
+    "validation_prompts": ["Explain a simple idea.", "The sky is"]
+  }
+}
+```
+
+Poll `job_status` with the returned job ID. The job:
+
+1. Copies the source checkpoint and checks the content-bound plan token.
+2. Records reference logits with gradients disabled.
+3. Rewrites weight shards and updates the config, layer indices, and shard index.
+4. Strictly reloads the candidate and compares its logits with the original, including
+   next-token decoding with a KV cache.
+5. Publishes the new standalone checkpoint only if all comparisons pass.
+
+The original checkpoint is retained. Stale plans, failed verification, and cancellation
+publish no output model. Verification details are returned in job status, saved under
+`runs/<job_id>/architecture_validation.json`, and included in the output's provenance manifest.
+
+Verification uses CPU float32 eager attention and fixed `atol=1e-5`, `rtol=1e-4` tolerances.
+It always includes deterministic synthetic token probes. Optional `validation_prompts`
+add up to four raw-text probes and require local tokenizer assets; each must contain at
+least two tokens. `max_validation_tokens` defaults to 32 and is limited to 2–128.
+Logit buffers are limited to 32 million elements. Probe inference runs on the source and
+candidate sequentially. Weight rewriting targets 512 MiB shards; an individual larger
+tensor occupies its own shard. Budget disk for the copied source plus rewritten weights,
+and RAM for the expanded model loaded in float32 and comparison buffers.
+
+**A passing comparison is a finite numerical check, not a proof for every input, precision,
+GPU kernel, or external inference engine.** Test your deployment backend and held-out
+dataset before using a changed checkpoint. Probe timings are diagnostics, not a controlled
+speed benchmark. Larger identity-initialized models usually consume more resources while
+initially doing the same computation.
+
+For an offline smoke demo, use your virtual environment's Python to run:
+
+```bash
+python examples/make_tiny_qwen.py --root ./model-lab --family qwen2
+python examples/make_tiny_qwen.py --root ./model-lab --family qwen3
+```
+
+These create tiny **random, untrained** checkpoints with the real Qwen module layouts.
+They validate the transformation workflow, not pretrained-model task quality. Their initial
+MLP width is 24; a widening preview can use `new_intermediate_size: 48`.
 
 ## Fine-tune workflow
 
@@ -323,5 +426,9 @@ and a stdio MCP client launched from the generated configuration.
 - [Transformers 4.57 model loading and saving](https://huggingface.co/docs/transformers/v4.57.1/en/main_classes/model)
 - [PEFT LoRA](https://huggingface.co/docs/peft/package_reference/lora)
 - [Safetensors PyTorch API](https://huggingface.co/docs/safetensors/api/torch)
+- [Qwen2 model/config reference](https://huggingface.co/docs/transformers/v4.57.1/en/model_doc/qwen2)
+- [Qwen3 model/config reference](https://huggingface.co/docs/transformers/v4.57.1/en/model_doc/qwen3)
+- [LLaMA Pro identity-initialized block expansion](https://arxiv.org/abs/2401.02415)
+- [Net2Net function-preserving transformations](https://arxiv.org/abs/1511.05641)
 
 MIT licensed; see `LICENSE`.

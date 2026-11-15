@@ -11,7 +11,13 @@ import traceback
 import torch
 from filelock import FileLock
 
-from .schemas import EvaluateRequest, GenerateRequest, MergeRequest, TrainRequest
+from .schemas import (
+    EvaluateRequest,
+    GenerateRequest,
+    MergeRequest,
+    QwenArchitectureJobRequest,
+    TrainRequest,
+)
 from .weights import Checkpoint
 from .workspace import Workspace, json_write, read_json, sha256
 
@@ -356,6 +362,19 @@ class Worker:
             Checkpoint(stage)
             self.workspace.publish(stage, output)
 
+    def architecture(self, request):
+        from .qwen import run_change
+
+        return run_change(
+            self.workspace,
+            request,
+            check=self.check,
+            update=self.update,
+            publish=self.publish,
+            report_path=self.run / "architecture_validation.json",
+            job_id=self.state["job_id"],
+        )
+
     def execute(self):
         kind = self.payload["kind"]
         schema = {
@@ -363,6 +382,7 @@ class Worker:
             "evaluate": EvaluateRequest,
             "generate": GenerateRequest,
             "merge": MergeRequest,
+            "architecture": QwenArchitectureJobRequest,
         }[kind]
         try:
             with FileLock(self.workspace.root / ".compute.lock", timeout=0):

@@ -10,7 +10,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from . import __version__, weights
+from . import __version__, qwen, weights
 from .jobs import Jobs
 from .runtime import default_root, mcp_config
 from .schemas import (
@@ -20,6 +20,8 @@ from .schemas import (
     GenerateRequest,
     MergeRequest,
     Name,
+    QwenArchitectureJobRequest,
+    QwenArchitectureRequest,
     TrainRequest,
 )
 from .workspace import Workspace, read_json
@@ -44,6 +46,11 @@ def create_server(root: str | Path) -> FastMCP:
             "plus adapter for evaluation/generation, or merge it into a standalone model. "
             "Weight changes are numerical interventions; validate behavior with evaluation "
             "and generation."
+            " For dense Qwen2/Qwen2.5 or Qwen3 full-attention models, inspect_qwen_architecture, "
+            "preview_qwen_architecture_change, then start_qwen_architecture_change supports "
+            "identity block insertion and MLP widening with no training. The job must pass "
+            "CPU float32 cached and uncached logit comparisons before publishing. "
+            "Preserving the existing function adds no new learned abilities."
         ),
     )
 
@@ -58,6 +65,13 @@ def create_server(root: str | Path) -> FastMCP:
             "supported_platforms": ["Windows", "macOS", "Linux"],
             "formats": ["Hugging Face unquantized safetensors (single or sharded)", "PEFT LoRA"],
             "training": ["lora", "full"],
+            "architecture_edits": {
+                "model_types": ["qwen2", "qwen3"],
+                "operations": ["insert_identity_blocks", "widen_mlp"],
+                "training_required": False,
+                "verification": "CPU float32 eager inference, with and without KV cache",
+                "constraints": "Dense full attention; no MoE, VL, hybrid, or quantized models",
+            },
             "tasks": ["causal language modeling"],
             "devices": {
                 "cpu": True,
@@ -227,6 +241,39 @@ def create_server(root: str | Path) -> FastMCP:
     async def merge_adapter(request: MergeRequest) -> dict[str, Any]:
         """Launch a LoRA merge into a new standalone model; preserve the base and adapter."""
         return await asyncio.to_thread(jobs.start, "merge", request)
+
+    @server.tool(annotations=READ)
+    async def inspect_qwen_architecture(model: Name) -> dict[str, Any]:
+        """Inspect structural-edit support and dimensions for dense Qwen2/Qwen2.5 or Qwen3.
+
+        Supports canonical unquantized full-attention causal language models only. No custom,
+        multimodal, MoE, hybrid, or sliding-window variants. Uses parameter metadata only.
+        """
+        return await asyncio.to_thread(qwen.inspect, workspace, model)
+
+    @server.tool(annotations=READ)
+    async def preview_qwen_architecture_change(request: QwenArchitectureRequest) -> dict[str, Any]:
+        """Preview a training-free Qwen structural transform and return its plan_token.
+
+        insert_identity_blocks uses unique zero-based insert_after indices. widen_mlp requires
+        new_intermediate_size larger than the current width and at most 4x larger, for all MLPs.
+        New MLP channels copy existing gate/up rows and have zero down-projection columns.
+        These transformations preserve the mathematical inference function, not add abilities.
+        """
+        return await asyncio.to_thread(qwen.preview, workspace, request)
+
+    @server.tool(annotations=WRITE)
+    async def start_qwen_architecture_change(request: QwenArchitectureJobRequest) -> dict[str, Any]:
+        """Launch a previewed structural change into a new Qwen checkpoint; no training occurs.
+
+        Pass preview's plan_token as expected_plan_token. Copies and rewrites weights, updates
+        config, strictly reloads, and compares source/output logits including KV-cache decoding.
+        Uses CPU float32 eager inference with fixed tolerances on deterministic token probes.
+        Optional validation_prompts require a local tokenizer. Failed verification publishes
+        no model. This finite probe check is not a guarantee for every input or GPU backend.
+        Poll job_status; results and a persistent verification report are saved with the job.
+        """
+        return await asyncio.to_thread(jobs.start, "architecture", request)
 
     @server.tool(annotations=READ)
     def job_status(

@@ -1,12 +1,12 @@
 # Validation
 
-Version 0.1.1 validated locally on November 14, 2026, using Linux x86_64,
+Version 0.2.0 validated locally on November 15, 2026, using Linux x86_64,
 Python 3.12.14, and CPU PyTorch.
 
 ## Results
 
 - `ruff check .`: passed.
-- `pytest -q`: **37 passed in 54.06 seconds**.
+- `pytest -q`: **74 passed in 83.25 seconds**.
 - `python -m build`: source distribution and Python wheel built successfully.
 - The generated MCP configuration launches a real stdio server from a workspace
   whose path includes spaces and Japanese characters.
@@ -20,7 +20,7 @@ recorded local run, not a claim about a completed remote workflow.
 The tests construct a tiny random GPT-2-style model and a local WordLevel tokenizer.
 No pretrained model checkpoint is downloaded. They verify:
 
-- An actual stdio MCP connection: initialization, all 17 tool schemas, annotations,
+- An actual stdio MCP connection: initialization, all 20 tool schemas, annotations,
   tensor inspection, preview/apply, structured results, input errors, and a generation job.
 - Real full-parameter training with PyTorch gradients, checkpoint saving, reload,
   evaluation, and generation.
@@ -46,6 +46,31 @@ No pretrained model checkpoint is downloaded. They verify:
 
 The symlink test may skip only when a Windows account lacks the symlink privilege;
 normal model operation does not require that privilege. All other tests run natively.
+
+## Qwen architecture transformations
+
+The additional 37 Qwen checks use tiny, randomly initialized models with the actual
+Transformers Qwen2 and Qwen3 module layouts. They perform no checkpoint downloads and
+do not establish task quality for a pretrained model. They cover:
+
+- Identity block insertion and MLP widening for both dense model families, starting
+  from float32, float16, and bfloat16 saved weights and sharded input checkpoints.
+- Numerical comparisons of full-sequence logits and KV-cache next-token logits in
+  CPU float32 eager inference, followed by greedy generation from reloaded checkpoints.
+- Exact retention of original MLP weight entries, zero new output connections, layer
+  renumbering, updated configs, source fingerprint preservation, and strict reloads.
+- Sharded output, tied embeddings, grouped-query attention, and Qwen3 attention bias.
+- A guard that fails the test if architecture changes invoke backward or optimizer steps.
+- Failed-equivalence injection: corrupting output weights fails verification, leaves
+  a persistent failed report, and publishes no model. Cancellation also cleans staging.
+- Rejection of stale source/edit plans, missing/extra/misshaped/nonfinite weights,
+  invalid dimensions, and unsupported MoE, VL, hybrid, sliding-window, and custom variants.
+- Actual background jobs and an end-to-end Qwen transformation through a stdio MCP client.
+
+The mathematical transformations target the same inference function. The implemented
+numerical gate checks finite probes with `atol=1e-5`, `rtol=1e-4`; this is not a guarantee
+for all inputs, storage precisions, GPU kernels, or external model-serving runtimes.
+Larger pretrained Qwen checkpoints and GPU execution remain deployment validation work.
 
 ## Numerical smoke test
 

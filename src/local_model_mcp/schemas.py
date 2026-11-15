@@ -117,3 +117,37 @@ class GenerateRequest(ModelRequest):
 class MergeRequest(ModelRequest):
     adapter: Name
     output: Name
+
+
+class QwenArchitectureRequest(StrictModel):
+    model: Name
+    operation: Literal["insert_identity_blocks", "widen_mlp"]
+    insert_after: list[Annotated[int, Field(ge=0)]] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=32,
+    )
+    new_intermediate_size: int | None = Field(default=None, ge=1, le=1_000_000)
+
+    @model_validator(mode="after")
+    def validate_operation(self):
+        if self.operation == "insert_identity_blocks":
+            if not self.insert_after or self.new_intermediate_size is not None:
+                raise ValueError("Identity insertion requires insert_after only")
+            if len(set(self.insert_after)) != len(self.insert_after):
+                raise ValueError("insert_after indices must be unique")
+            self.insert_after = sorted(self.insert_after)
+        elif self.new_intermediate_size is None or self.insert_after is not None:
+            raise ValueError("MLP widening requires new_intermediate_size only")
+        return self
+
+
+class QwenArchitectureJobRequest(QwenArchitectureRequest):
+    output: Name
+    expected_plan_token: str = Field(pattern=r"^[a-f0-9]{64}$")
+    validation_prompts: list[Annotated[str, Field(min_length=1, max_length=4096)]] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=4,
+    )
+    max_validation_tokens: int = Field(default=32, ge=2, le=128)

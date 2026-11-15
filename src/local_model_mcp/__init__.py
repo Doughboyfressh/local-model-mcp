@@ -1,3 +1,3 @@
 """Local model training and weight editing over MCP."""
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"

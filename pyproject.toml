@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "local-model-mcp"
-version = "0.1.1"
+version = "0.2.0"
 description = "Local MCP tools for fine-tuning and versioned tensor editing of AI checkpoints"
 readme = "README.md"
 requires-python = ">=3.11"

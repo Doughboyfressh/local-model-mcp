@@ -66,7 +66,17 @@ class Jobs:
             checkpoint = Checkpoint(self.workspace.model(request.model))
             if checkpoint.kind != "model":
                 raise ValueError("Use a full base model as model, and pass adapter separately")
-            fingerprints = {"model": checkpoint.revision()}
+            if kind == "architecture":
+                from .qwen import make_plan
+
+                architecture_plan = make_plan(checkpoint, request)[3]
+                if architecture_plan["plan_token"] != request.expected_plan_token:
+                    raise ValueError(
+                        "Stale Qwen architecture plan; preview the exact request again"
+                    )
+                fingerprints = {"model": architecture_plan["source_revision"]}
+            else:
+                fingerprints = {"model": checkpoint.revision()}
             if getattr(request, "adapter", None):
                 adapter = Checkpoint(self.workspace.model(request.adapter))
                 if adapter.kind != "adapter":
