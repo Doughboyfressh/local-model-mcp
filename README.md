@@ -37,6 +37,66 @@ macOS, and Linux with Python 3.11 and 3.12. GPU paths need their respective hard
 Requires Python 3.11+ and enough RAM/VRAM for the chosen model. The package uses the MCP Python
 SDK 1.x and Transformers 4.x intentionally; dependencies exclude their next major versions.
 
+### Simple installer (recommended)
+
+Install 64-bit **Python 3.12** from [python.org](https://www.python.org/downloads/),
+then [download this repository as a ZIP](https://github.com/Doughboyfressh/local-model-mcp/archive/refs/heads/main.zip)
+and extract it. Open a terminal in the extracted folder containing `install.py`.
+Git is optional. On Apple silicon, use native ARM Python; Intel macOS and other
+CPU architectures are outside this installer's supported matrix.
+
+| System | Run from the extracted project folder |
+| --- | --- |
+| Windows, PowerShell | `py -3.12 install.py` |
+| macOS or Linux, Terminal | `python3 install.py` |
+
+The installer creates a private virtual environment, installs the package and its
+dependencies, checks imports and a tiny CPU tensor operation, then generates
+`mcp-config.json` and `install-info.json`. Windows/Linux get the CPU-only PyTorch
+build; the macOS build includes MPS support where available. No activation or admin
+access is needed. This installs software dependencies over the internet, but does
+not download model weights, start training, edit models, or provision a GPU.
+It prints detected backend availability; it does not verify GPU execution.
+
+| System | Default installation environment |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\local-model-mcp\venv` |
+| macOS | `~/Library/Application Support/local-model-mcp/venv` |
+| Linux | `${XDG_DATA_HOME:-~/.local/share}/local-model-mcp/venv` |
+
+Copy the generated `mcp-config.json` contents into your MCP host's configuration,
+then restart the host. The installer prints its exact location. Your model workspace
+uses the default workspace in the Windows/macOS/Linux section, or `LOCAL_MODEL_MCP_ROOT` when set;
+the installer does not create model data or change host settings.
+
+Optional flags work on every platform:
+
+```text
+--dry-run                         Print paths and commands without installing
+--venv "/absolute/install/path"   Choose an installation environment
+--workspace "/absolute/model-lab" Choose the model workspace
+--wheel "/path/package.whl"       Install a locally built wheel instead of source
+```
+
+Keep your model workspace outside the disposable environment. A rerun updates an
+environment created by this installer; an unrelated, nonempty directory is refused.
+If a dependency download or check fails, fix the reported issue and rerun the same
+command. A connection file is written only after checks pass. An interrupted update
+can leave the environment incomplete; a previous connection file is not a health check.
+Only one installer can use a destination at a time. If a crashed installer leaves a
+lock, the error gives its path; remove it only after confirming no installation is running.
+
+On Linux, a missing `ensurepip`/`venv` error means the Python venv component must be
+installed through your OS package manager. If pip cannot find a compatible wheel,
+use Python 3.12 and check your OS/architecture and network connection.
+
+To remove the installation, first disconnect it from your MCP host and stop its
+server/jobs, then delete **only the environment directory**. Keep the model workspace
+if you want to retain your models, datasets, and reports. Never move an installed
+environment; rerun the installer at the new location and copy its new connection JSON.
+
+### Manual setup
+
 Clone this repository and enter `local-model-mcp`, then use the commands for your OS.
 These commands invoke the virtual environment directly, so activation-policy changes
 are unnecessary. Install Git and Python 3.11+ first; the examples use Python 3.12 on Windows.

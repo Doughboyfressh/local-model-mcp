@@ -1,18 +1,20 @@
 # Validation
 
-Version 0.3.0 validated locally on November 15, 2026, using Linux x86_64,
+Version 0.4.0 validation uses a fresh installer-created environment on Linux x86_64,
 Python 3.12.14, and CPU PyTorch.
 
 ## Results
 
 - `ruff check .`: passed.
-- `pytest -q`: **98 passed in 266.87 seconds**, including 24 benchmark checks.
+- `pytest -q` from the installer-created environment: **109 passed in 155.59 seconds**,
+  including 11 installer and 24 benchmark checks.
 - `python -m build`: source distribution and Python wheel built successfully.
 - The built wheel installs successfully; both installed console entry points launch.
 - The generated MCP configuration launches a real stdio server from a workspace
   whose path includes spaces and Japanese characters.
 
-The CI workflow builds and installs the wheel before running the full CPU suite on
+The CI workflow builds the wheel and installs it through `install.py` in a fresh,
+isolated environment before running the full CPU suite on
 `windows-latest`, `macos-latest` (Apple silicon), and `ubuntu-latest`, using both Python
 3.11 and 3.12. The [Actions page](https://github.com/Doughboyfressh/local-model-mcp/actions)
 is authoritative for each commit's native runner results; the numbers above are the
@@ -47,6 +49,25 @@ No pretrained model checkpoint is downloaded. They verify:
 
 The symlink test may skip only when a Windows account lacks the symlink privilege;
 normal model operation does not require that privilege. All other tests run natively.
+
+## Cross-platform installer
+
+The local installation ran `install.py` against the built wheel with its default
+CPU PyTorch selection. It created an isolated environment, installed dependencies,
+passed `pip check`, imported the runtime dependencies, and completed a tiny CPU
+tensor operation. Both console entry points launched. Its generated MCP JSON uses
+the new environment's interpreter and a workspace path containing spaces and Japanese
+characters; no model workspace or model weights were created by installation.
+
+The 11 installer checks cover platform-specific paths and package sources, unsupported
+architectures and Python/venv requirements, dry-run side effects, unrelated directory
+preservation, workspace/environment separation, concurrent installation rejection,
+retry after failure, shell-free subprocess calls, and offline model lookup settings.
+These checks mock installation commands; the fresh local install and native CI runs
+exercise the real dependency installation and generated configuration.
+
+The installer checks CPU execution and reports detected backend availability. It does
+not validate CUDA/MPS kernels, download pretrained models, or change MCP host settings.
 
 ## Qwen architecture transformations
 
@@ -120,7 +141,7 @@ quality for a real pretrained model.
 | accelerate | 1.15.0 |
 | tokenizers | 0.22.2 |
 | huggingface-hub | 0.36.2 |
-| numpy | 2.5.4 |
+| numpy | 2.5.5 |
 | pytest | 9.2.0 |
 | ruff | 0.17.5 |
 

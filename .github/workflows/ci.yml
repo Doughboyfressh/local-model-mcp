@@ -47,11 +47,30 @@ jobs:
         run: python -m ruff check .
       - name: Build distributions
         run: python -m build
-      - name: Install the built wheel
-        run: python -m pip install --force-reinstall --no-deps --no-index --find-links dist local-model-mcp
-      - name: Check installed entry point
-        run: local-model-mcp --version
-      - name: Check installed benchmark CLI
-        run: local-model-benchmark --help
-      - name: Test installed package, real training, and MCP over stdio
-        run: python -m pytest -q
+      - name: Install built wheel with the cross-platform installer
+        shell: python
+        run: |
+          import subprocess
+          import sys
+          from pathlib import Path
+          wheel, = Path('dist').glob('*.whl')
+          subprocess.run([sys.executable, 'install.py', '--venv', '.installed',
+                          '--workspace', './model lab 日本語', '--wheel', str(wheel)], check=True)
+      - name: Check and test the isolated installation
+        shell: python
+        run: |
+          import json
+          import subprocess
+          import sys
+          from pathlib import Path
+          directory = Path('.installed').resolve()
+          python = directory / ('Scripts/python.exe' if sys.platform == 'win32' else 'bin/python')
+          scripts = directory / ('Scripts' if sys.platform == 'win32' else 'bin')
+          suffix = '.exe' if sys.platform == 'win32' else ''
+          for name, flag in [('local-model-mcp', '--version'), ('local-model-benchmark', '--help')]:
+              subprocess.run([str(scripts / (name + suffix)), flag], check=True)
+          config = json.loads((directory / 'mcp-config.json').read_text(encoding='utf-8'))
+          assert Path(config['mcpServers']['local-model-lab']['command']) == python
+          assert not Path('model lab 日本語').exists(), 'Installer must not create model data'
+          subprocess.run([str(python), '-m', 'pip', 'install', 'pytest>=8'], check=True)
+          subprocess.run([str(python), '-m', 'pytest', '-q'], check=True)

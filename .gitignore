@@ -1,4 +1,6 @@
 .venv/
+.installed/
+model lab 日本語/
 __pycache__/
 *.pyc
 .pytest_cache/
